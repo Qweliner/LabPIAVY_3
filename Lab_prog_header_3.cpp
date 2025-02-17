@@ -1,5 +1,3 @@
-//Lab_prog_header_3.cpp
-
 #include "Lab_prog_header_3.h"
 
 using namespace std;
@@ -75,265 +73,241 @@ void readInstructionsFromFile(const string& filename) {
     _getch();
 }
 
-/** @brief Обрабатывает информацию об организации.
- *  Находит и выводит данные организации из файлов корреспонденции и адресов.
- */
-void processOrganization(const string& orgName, const string& corrFilename, const string& addrFilename, bool selectiveOutput, ofstream* outfile, set<string>& printedOrganizations, vector<string>& outputBuffer) {
-    ifstream corrFile(corrFilename);
-    ifstream addrFile(addrFilename);
-    vector<pair<string, string>> addresses;
-    bool orgFoundInAddress = false;
-    int lineNumber = 1;
+/** @brief Запрашивает имя входного файла у пользователя. */
+string getInputFilenameFromUser(const string& folderPath) {
+    string filename;
+    cout << "Введите имя входного файла (output.txt - Enter для использования по умолчанию): ";
+    getline(cin, filename);
 
-    auto writeToBuffer = [&](const string& str) {
-        outputBuffer.push_back(str); // Записываем строку в буфер
-        };
-
-    if (addrFile.is_open()) {
-        string line;
-        getline(addrFile, line); // Пропустить заголовок
-        lineNumber++;
-
-        while (getline(addrFile, line)) {
-            size_t pos1 = line.find('\t');
-            size_t pos2 = line.find('\t', pos1 + 1);
-
-            if (pos1 != string::npos && pos2 != string::npos) {
-                string currentOrg = line.substr(0, pos1);
-                if (currentOrg == orgName) {
-                    addresses.push_back({ line.substr(pos1 + 1, pos2 - pos1 - 1),
-                                         line.substr(pos2 + 1) });
-                    orgFoundInAddress = true;
-                    string contactFio = line.substr(pos2 + 1);
-                    if (!isValidFio(contactFio)) {
-                        writeToBuffer("Ошибка в файле: " + addrFilename + ", строка: " + to_string(lineNumber) +
-                            ", некорректное значение поля ФИО: " + contactFio);
-                    }
-                }
-            }
-            if (!selectiveOutput && outfile &&
-                printedOrganizations.find(orgName) != printedOrganizations.end())
-                break; // Прерываем, если не селективный и уже напечатан
-            lineNumber++;
-        }
-        addrFile.close();
+    // Если пользователь нажал Enter, используем имя файла по умолчанию
+    if (filename.empty()) {
+        filename = "output.txt";
     }
-    else {
-        writeToBuffer("Не удалось открыть файл адресов: " + addrFilename);
+
+    return folderPath + filename;
+}
+
+/** @brief Считывает данные об организациях из файла. */
+vector<Organization> readOrganizationsFromFile(const string& filename) {
+    vector<Organization> organizations;
+    ifstream file(filename);
+    if (!file.is_open()) {
+        cerr << "Не удалось открыть файл: " << filename << endl;
+        return organizations; // Возвращаем пустой вектор
+    }
+
+    string line;
+    Organization currentOrg;
+    bool inAdditionalContacts = false;
+
+    while (getline(file, line)) {
+        if (line.rfind("Организация:", 0) == 0) {
+            // Начало нового блока организации
+            if (!currentOrg.name.empty()) {
+                // Сохраняем предыдущую организацию, если она была заполнена
+                organizations.push_back(currentOrg);
+            }
+            currentOrg = {}; // Создаем новый пустой объект Organization
+            currentOrg.name = line.substr(string("Организация:").length() + 1);
+            if (currentOrg.name.empty()) currentOrg.name = Constants::DEFAULT_EMPTY_VALUE; // Обработка пустого значения
+            inAdditionalContacts = false;
+        }
+        else if (line.rfind("Адрес:", 0) == 0) {
+            currentOrg.address = line.substr(string("Адрес:").length() + 1);
+            if (currentOrg.address.empty()) currentOrg.address = Constants::DEFAULT_EMPTY_VALUE; // Обработка пустого значения
+            inAdditionalContacts = false;
+        }
+        else if (line.rfind("Контактное лицо:", 0) == 0) {
+            currentOrg.contactPerson = line.substr(string("Контактное лицо:").length() + 1);
+            if (currentOrg.contactPerson.empty()) currentOrg.contactPerson = Constants::DEFAULT_EMPTY_VALUE; // Обработка пустого значения
+            inAdditionalContacts = false;
+        }
+        else if (line == "Другие найденные данные компании:") {
+            inAdditionalContacts = true;
+        }
+        else if (inAdditionalContacts && line.rfind("Адрес:", 0) == 0) {
+            string address = line.substr(string("Адрес:").length() + 1);
+            if (address.empty()) address = Constants::DEFAULT_EMPTY_VALUE; // Обработка пустого значения
+            getline(file, line); // Считываем строку с контактным лицом
+            if (line.rfind("Контактное лицо:", 0) == 0) {
+                string contactPerson = line.substr(string("Контактное лицо:").length() + 1);
+                if (contactPerson.empty()) contactPerson = Constants::DEFAULT_EMPTY_VALUE; // Обработка пустого значения
+                currentOrg.additionalContacts.push_back({ address, contactPerson });
+            }
+        }
+        else if (line.rfind("\tТип корреспонденции:", 0) == 0) {
+            // Читаем данные о корреспонденции
+            Correspondence corr;
+            corr.type = line.substr(string("\tТип корреспонденции:").length() + 1);
+            if (corr.type.empty()) corr.type = Constants::DEFAULT_EMPTY_VALUE; // Обработка пустого значения
+
+            getline(file, line); // Считываем строку с датой
+            if (line.rfind("\tДата:", 0) == 0) {
+                corr.date = line.substr(string("\tДата:").length() + 1);
+                if (corr.date.empty()) corr.date = Constants::DEFAULT_EMPTY_VALUE; // Обработка пустого значения
+            }
+            currentOrg.correspondences.push_back(corr);
+            inAdditionalContacts = false;
+        }
+        else if (line == "--------------------") {
+            // Конец блока организации
+            organizations.push_back(currentOrg);
+            currentOrg = {};
+            inAdditionalContacts = false;
+        }
+    }
+
+    // Добавляем последнюю организацию, если файл не заканчивается разделителем
+    if (!currentOrg.name.empty()) {
+        organizations.push_back(currentOrg);
+    }
+
+    file.close();
+    return organizations;
+}
+
+/** @brief Выводит данные об организациях в файл. */
+void writeOrganizationsToFile(const string& filename, const vector<Organization>& organizations, const string& sortField, bool ascending, const vector<int>& missingValuesIndices) {
+    ofstream file(filename);
+    if (!file.is_open()) {
+        cerr << "Не удалось открыть файл для записи: " << filename << endl;
         return;
     }
 
-    if (!orgFoundInAddress) {
-        if (selectiveOutput)
-            writeToBuffer("Организация " + orgName + " не найдена в файле адресов.");
+    // Записываем информацию о сортировке в файл
+    file << "Сортировка по полю: " << sortField << endl;
+    file << "Направление сортировки: " << (ascending ? "По возрастанию" : "По убыванию") << endl;
+    file << "--------------------\n";
+
+    for (size_t i = 0; i < organizations.size(); ++i) {
+        const auto& org = organizations[i];
+
+        file << "Организация: " << org.name << endl;
+        file << "Адрес: " << org.address << endl;
+        file << "Контактное лицо: " << org.contactPerson << endl;
+
+        if (!org.additionalContacts.empty()) {
+            file << "Другие найденные данные компании:\n";
+            for (const auto& contact : org.additionalContacts) {
+                file << "Адрес: " << contact.first << endl;
+                file << "Контактное лицо: " << contact.second << endl;
+            }
+        }
+
+        if (org.correspondences.empty()) {
+            file << "\tКорреспонденция отсутствует\n";
+        }
+        else {
+            for (const auto& corr : org.correspondences) {
+                file << "\tТип корреспонденции: " << corr.type << endl;
+                file << "\tДата: " << corr.date << endl;
+            }
+        }
+
+        // Выводим сообщение об отсутствии значения, если организация была перемещена в конец списка из-за этого
+        bool missingValue = false;
+        for (int index : missingValuesIndices) {
+            if (index == i) {
+                missingValue = true;
+                break;
+            }
+        }
+        if (missingValue) {
+            file << "\t" << sortField << " отсутствует\n";
+        }
+
+        file << "--------------------\n";
+    }
+
+    file.close();
+    cout << "Данные успешно записаны в файл: " << filename << endl;
+}
+
+/** @brief Запускает процесс сортировки данных. */
+void runSorting(string& folderPath, string& inputFilename) {
+    // Получаем имя входного файла от пользователя
+    inputFilename = getInputFilenameFromUser(folderPath);
+
+    // Считываем данные об организациях из файла
+    vector<Organization> organizations = readOrganizationsFromFile(inputFilename);
+
+    // Выводим сообщение, если не удалось прочитать организации
+    if (organizations.empty()) {
+        cout << "Нет данных для сортировки." << endl;
+        cout << "Нажмите любую клавишу для возврата в меню...";
+        _getch();
         return;
     }
 
-    if (selectiveOutput) {
-        writeToBuffer("Организация: " + orgName);
-        if (addresses.size() > 0) {
-            for (size_t i = 0; i < addresses.size(); ++i) {
-                if (i == 0) {
-                    writeToBuffer("Адрес: " + addresses[i].first);
-                    writeToBuffer("Контактное лицо: " + addresses[i].second);
-                }
-                else {
-                    if (i == 1)
-                        writeToBuffer("\nДругие найденные данные компании:\n");
-                    writeToBuffer("\nАдрес: " + addresses[i].first);
-                    writeToBuffer("Контактное лицо: " + addresses[i].second);
-                }
-            }
-        }
-    }
-    else if (outfile) {
-        if (printedOrganizations.find(orgName) == printedOrganizations.end()) {
-            printedOrganizations.insert(orgName);
-            *outfile << "Организация: " << orgName << endl;
-            if (addresses.size() > 0) {
-                for (size_t i = 0; i < addresses.size(); ++i) {
-                    if (i == 0) {
-                        *outfile << "Адрес: " << addresses[i].first << endl;
-                        *outfile << "Контактное лицо: " << addresses[i].second << endl;
-                    }
-                    else {
-                        if (i == 1)
-                            *outfile << "\nДругие найденные данные компании:\n";
-                        *outfile << "\nАдрес: " << addresses[i].first << endl;
-                        *outfile << "Контактное лицо: " << addresses[i].second << endl;
-                    }
-                }
-            }
-        }
+    // Выбор поля для сортировки
+    cout << "\nВыберите поле для сортировки:\n";
+    cout << "1. Организация\n";
+    cout << "2. Адрес\n";
+    cout << "3. Контактное лицо\n";
+    cout << "Esc - Вернуться в главное меню\n";
+    cout << "\nВаш выбор: ";
+
+    char choice = _getch();
+    cout << endl;
+
+    string sortField;
+    switch (choice) {
+    case '1':
+        sortField = "Организация";
+        break;
+    case '2':
+        sortField = "Адрес";
+        break;
+    case '3':
+        sortField = "Контактное лицо";
+        break;
+    case 27:
+        return;
+    default:
+        cerr << "Неверный выбор.\n";
+        cout << "Нажмите любую клавишу для возврата в меню...";
+        _getch();
+        return;
     }
 
-    if (orgFoundInAddress) {
-        if (selectiveOutput ||
-            (outfile && printedOrganizations.find(orgName) !=
-                printedOrganizations.end())) {
-            if (corrFile.is_open()) {
-                string line;
-                getline(corrFile, line); // Пропустить заголовок
-                lineNumber = 1;
-                lineNumber++;
-                bool foundCorrespondence = false;
-                while (getline(corrFile, line)) {
-                    size_t pos1 = line.find('\t');
-                    size_t pos2 = line.find('\t', pos1 + 1);
-
-                    if (pos1 != string::npos && pos2 != string::npos) {
-                        string currentOrg = line.substr(pos2 + 1);
-                        if (currentOrg == orgName) {
-                            foundCorrespondence = true;
-                            string type = line.substr(0, pos1);
-                            string date = line.substr(pos1 + 1, pos2 - pos1 - 1);
-                            bool dateError = !isValidDate(date);
-
-                            if (dateError)
-                                writeToBuffer("Ошибка в файле: " + corrFilename + ", строка: " + to_string(lineNumber)
-                                    + ", некорректное значение поля Дата: " + date);
-
-                            if (selectiveOutput) {
-                                writeToBuffer("\tТип корреспонденции: " + type);
-                                writeToBuffer("\tДата: " + date);
-                            }
-                            else if (outfile) {
-                                *outfile << "\tТип корреспонденции: " << type << endl;
-                                *outfile << "\tДата: " << date << endl;
-                            }
-                        }
-                    }
-                    lineNumber++;
-                }
-                if (!foundCorrespondence && selectiveOutput)
-                    writeToBuffer("Корреспонденция для организации " + orgName + " не найдена.");
-                corrFile.close();
-            }
-            else
-                writeToBuffer("Не удалось открыть файл корреспонденции: " + corrFilename);
-        }
-    }
-    if (selectiveOutput)
-        writeToBuffer("--------------------");
-    else if (outfile)
-        *outfile << "--------------------" << endl;
-}
-
-/** @brief Запрашивает имена файлов у пользователя. */
-pair<string, string> getFilenamesFromUser(const string& folderPath) {
-    string correspondenceFilename, addressesFilename;
-
-    cout << "Введите имя файла с исходящей корреспонденцией (без расширения): ";
-    cin >> correspondenceFilename;
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
-    if (!isValidFileName(correspondenceFilename)) {
-        tabul(11);
-        printf("Недопустимые символы в имени файла. Пожалуйста, используйте другое "
-            "имя.\n");
-        printf("ДЛЯ ПРОДОЛЖЕНИЯ НАЖМИТЕ ENTER.");
-        system("PAUSE>nul");
-    }
-
-    cout << "Введите имя файла с адресами организаций (без расширения): ";
-    cin >> addressesFilename;
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
-    if (!isValidFileName(addressesFilename)) {
-        tabul(11);
-        printf("Недопустимые символы в имени файла. Пожалуйста, используйте другое "
-            "имя.\n");
-        printf("ДЛЯ ПРОДОЛЖЕНИЯ НАЖМИТЕ ENTER.");
-        system("PAUSE>nul");
-    }
-
-    return { folderPath + "IC_" + correspondenceFilename + ".txt",
-            folderPath + "AO_" + addressesFilename + ".txt" };
-}
-
-/** @brief Запускает основной процесс программы. */
-void runProgram(string& folderPath, string& correspondenceFilename, string& addressesFilename, string& outputFilename) {
-    pair<string, string> filenames = getFilenamesFromUser(folderPath);
-    correspondenceFilename = filenames.first;
-    addressesFilename = filenames.second;
-
-    if (folderPath.back() != '\\' && folderPath.back() != '/')
-        folderPath += '\\';
-
-    outputFilename = folderPath + "output.txt";
-
-    char choice;
-    cout << "\nВыберите режим вывода:\n";
-    cout << "1. Избирательный вывод на экран\n";
-    cout << "2. Полный вывод в файл\n";
+    // Выбор направления сортировки
+    cout << "\nВыберите направление сортировки:\n";
+    cout << "1. По возрастанию (up)\n";
+    cout << "2. По убыванию (down)\n";
     cout << "Esc - Вернуться в главное меню\n";
     cout << "\nВаш выбор: ";
 
     choice = _getch();
     cout << endl;
 
+    bool ascending = true;
     switch (choice) {
-    case '1': {
-        string orgName;
-        cout << "Введите название организации для поиска: ";
-        getline(cin, orgName);
-        ofstream* outfile = nullptr;
-        set<string> printedOrganizations;
-        vector<string> outputBuffer; // Создаем буфер для хранения данных
-        processOrganization(orgName, correspondenceFilename, addressesFilename,
-            true, outfile, printedOrganizations, outputBuffer);
-
-        if (outputBuffer.size() > 28) { // Если строк больше, чем 28
-            string currentFolderPathselectiveoutput = folderPath + "selective_output.txt";
-            ofstream selectiveOutfile(currentFolderPathselectiveoutput);
-            if (selectiveOutfile.is_open()) { // Проверяем, что файл открыт
-                for (const string& line : outputBuffer)
-                    selectiveOutfile << line << endl;
-                selectiveOutfile.close();
-                cout << "\nРезультат сохранен в файле selective_output.txt, так как превысил 28 строк.\n";
-                cout << "Путь к результату: " << currentFolderPathselectiveoutput << "\n";
-            }
-            else
-                cerr << "Ошибка: не удалось открыть файл для записи избирательного вывода.\n";
-        }
-        else { // Иначе, если строк не больше 28, то выводим в консоль
-            for (const string& line : outputBuffer)
-                cout << line << endl;
-        }
+    case '1':
+        ascending = true;
         break;
-    }
-    case '2': {
-        ofstream outfile(outputFilename);
-        if (!outfile.is_open()) {
-            cerr << "Ошибка: Не удалось открыть файл для записи: " << outputFilename
-                << endl;
-            return;
-        }
-        set<string> printedOrganizations;
-        vector<string> outputBuffer; // Этот буфер больше не нужен
-        ifstream addrFile(addressesFilename);
-        if (addrFile.is_open()) {
-            string line;
-            getline(addrFile, line); // Пропустить заголовок
-            while (getline(addrFile, line)) {
-                size_t pos1 = line.find('\t');
-                if (pos1 != string::npos) {
-                    string orgName = line.substr(0, pos1);
-                    if (printedOrganizations.find(orgName) == printedOrganizations.end())
-                        processOrganization(orgName, correspondenceFilename,
-                            addressesFilename, false, &outfile,
-                            printedOrganizations, outputBuffer); // Прокидываем буфер для совместимости
-                }
-            }
-            addrFile.close();
-        }
-        outfile.close();
-        cout << "\nИнформация успешно записана в файл: " << outputFilename << endl;
+    case '2':
+        ascending = false;
         break;
-    }
     case 27:
         return;
     default:
         cerr << "Неверный выбор.\n";
+        cout << "Нажмите любую клавишу для возврата в меню...";
+        _getch();
+        return;
     }
+
+    // Вектор для хранения индексов организаций, у которых отсутствуют значения в поле сортировки
+    vector<int> missingValuesIndices;
+
+    // Выполняем сортировку
+    sortOrganizations(organizations, sortField, ascending, missingValuesIndices);
+
+    // Формируем имя файла для сохранения результатов
+    string outputFilename = folderPath + "sorted_by_" + sortField + "_" + (ascending ? "up" : "down") + ".txt";
+
+    // Записываем отсортированные данные в файл
+    writeOrganizationsToFile(outputFilename, organizations, sortField, ascending, missingValuesIndices);
 
     cout << "Нажмите любую клавишу для возврата в меню...";
     _getch();
@@ -342,22 +316,20 @@ void runProgram(string& folderPath, string& correspondenceFilename, string& addr
 /** @brief Отображает главное меню. */
 void menu() {
     bool folderPathSet = false;
-    string correspondenceFilename, addressesFilename, outputFilename;
-    string currentFolderPath = "";
-    const string instructionsFile = "instructions.txt";
+    string inputFilename;
 
     while (true) {
         system("cls");
         cout << "Главное меню:\n";
-        cout << "1. Начать работу ";
+        cout << "1. Сортировка данных ";
         if (!folderPathSet)
             cout << "(сначала укажите путь к папке)\n";
         else
             cout << '\n';
         cout << "2. Путь к папке\n";
-        cout << "3. Инструкция\n\n";
+        cout << "3. Инструкция\n";
+        cout << "4. Выход\n\n";
         cout << "Текущий путь: " << currentFolderPath << "\n\n";
-        cout << "Esc - Выход\n\n";
         cout << "> ";
 
         char mainChoice = _getch();
@@ -369,8 +341,7 @@ void menu() {
                 _getch();
             }
             else
-                runProgram(currentFolderPath, correspondenceFilename, addressesFilename,
-                    outputFilename);
+                runSorting(currentFolderPath, inputFilename);
             break;
         case '2': {
             cout << "Введите путь к папке: ";
@@ -397,12 +368,124 @@ void menu() {
             break;
         }
         case '3':
-            readInstructionsFromFile(instructionsFile);
+            readInstructionsFromFile(Constants::INSTRUCTIONS_FILE);
             break;
-        case 27:
-            return;
+        case '4':
+            return; // Выход из программы
         default:
             cerr << "Неверный выбор.\n";
         }
     }
+}
+
+/** @brief Выполняет сортировку вектора организаций методом выбора.
+   @param organizations Вектор организаций для сортировки.
+   @param sortField Поле, по которому выполняется сортировка.
+   @param ascending Направление сортировки (true - по возрастанию, false - по убыванию).
+   @param missingValuesIndices Вектор индексов организаций, у которых отсутствуют значения в поле сортировки.
+*/
+void sortOrganizations(vector<Organization>& organizations, const string& sortField, bool ascending, vector<int>& missingValuesIndices) {
+    int n = organizations.size();
+
+    // Сначала собираем индексы организаций с отсутствующими значениями
+    for (int i = 0; i < n; ++i) {
+        bool hasValue = true;
+        if (sortField == "Организация") {
+            if (organizations[i].name == Constants::DEFAULT_EMPTY_VALUE) hasValue = false;
+        }
+        else if (sortField == "Адрес") {
+            if (organizations[i].address == Constants::DEFAULT_EMPTY_VALUE) hasValue = false;
+        }
+        else if (sortField == "Контактное лицо") {
+            if (organizations[i].contactPerson == Constants::DEFAULT_EMPTY_VALUE) hasValue = false;
+        }
+
+        if (!hasValue) {
+            missingValuesIndices.push_back(i);
+        }
+    }
+
+    // Сортируем только организации с имеющимися значениями
+    for (int i = 0; i < n - 1; ++i) {
+        // Пропускаем организации, которые будут перемещены в конец списка
+        bool skipI = false;
+        for (int index : missingValuesIndices) {
+            if (index == i) {
+                skipI = true;
+                break;
+            }
+        }
+        if (skipI) continue;
+
+        int minIndex = i;
+        for (int j = i + 1; j < n; ++j) {
+            // Пропускаем организации, которые будут перемещены в конец списка
+            bool skipJ = false;
+            for (int index : missingValuesIndices) {
+                if (index == j) {
+                    skipJ = true;
+                    break;
+                }
+            }
+            if (skipJ) continue;
+
+            bool swap = false;
+            if (sortField == "Организация") {
+                if (ascending) {
+                    swap = organizations[j].name < organizations[minIndex].name;
+                }
+                else {
+                    swap = organizations[j].name > organizations[minIndex].name;
+                }
+            }
+            else if (sortField == "Адрес") {
+                if (ascending) {
+                    swap = organizations[j].address < organizations[minIndex].address;
+                }
+                else {
+                    swap = organizations[j].address > organizations[minIndex].address;
+                }
+            }
+            else if (sortField == "Контактное лицо") {
+                if (ascending) {
+                    swap = organizations[j].contactPerson < organizations[minIndex].contactPerson;
+                }
+                else {
+                    swap = organizations[j].contactPerson > organizations[minIndex].contactPerson;
+                }
+            }
+
+            if (swap) {
+                minIndex = j;
+            }
+        }
+
+        if (minIndex != i) {
+            swap(organizations[i], organizations[minIndex]);
+        }
+    }
+
+    // Перемещаем организации с отсутствующими значениями в конец списка
+    int missingCount = missingValuesIndices.size();
+    for (int i = 0; i < missingCount; ++i) {
+        int indexToMove = missingValuesIndices[i] - i; // Корректируем индекс, так как элементы сдвигаются
+        if (indexToMove >= 0 && indexToMove < organizations.size()) {
+            Organization temp = organizations[indexToMove];
+            organizations.erase(organizations.begin() + indexToMove);
+            organizations.push_back(temp);
+            // Обновляем индексы в missingValuesIndices, чтобы они указывали на правильные позиции
+            for (int j = i + 1; j < missingCount; ++j) {
+                if (missingValuesIndices[j] > indexToMove) {
+                    missingValuesIndices[j]--;
+                }
+            }
+        }
+    }
+}
+
+/** @brief Функция сравнения дат для сортировки. */
+bool compareDates(const string& date1, const string& date2, bool ascending) {
+    // TODO: Реализовать функцию сравнения дат с учетом неверных форматов.
+    // Неверные даты считать наименьшими/наибольшими в зависимости от направления сортировки.
+    return false; // Заглушка
 }

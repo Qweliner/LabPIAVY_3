@@ -133,6 +133,9 @@
   <ItemGroup>
     <ClInclude Include="Lab_prog_header_3.h" />
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="instructions.txt" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
