@@ -5,12 +5,6 @@ using namespace std;
 // Инициализация глобальной переменной
 string currentFolderPath = "";
 
-/** @brief Выводит табуляцию. */
-void tabul(int x) {
-    for (int i = x; i != 0; i--)
-        printf("   "); // Вывод трех пробелов
-}
-
 /** @brief Определяет, является ли год високосным. */
 bool is_leap(int year) {
     return (((year % 4 == 0) && (year % 100 != 0)) || (year % 400 == 0));
@@ -79,7 +73,6 @@ string getInputFilenameFromUser(const string& folderPath) {
     cout << "Введите имя входного файла (output.txt - Enter для использования по умолчанию): ";
     getline(cin, filename);
 
-    // Если пользователь нажал Enter, используем имя файла по умолчанию
     if (filename.empty()) {
         filename = "output.txt";
     }
@@ -93,7 +86,7 @@ vector<Organization> readOrganizationsFromFile(const string& filename) {
     ifstream file(filename);
     if (!file.is_open()) {
         cerr << "Не удалось открыть файл: " << filename << endl;
-        return organizations; // Возвращаем пустой вектор
+        return organizations;
     }
 
     string line;
@@ -102,24 +95,27 @@ vector<Organization> readOrganizationsFromFile(const string& filename) {
 
     while (getline(file, line)) {
         if (line.rfind("Организация:", 0) == 0) {
-            // Начало нового блока организации
             if (!currentOrg.name.empty()) {
-                // Сохраняем предыдущую организацию, если она была заполнена
                 organizations.push_back(currentOrg);
             }
             currentOrg = {}; // Создаем новый пустой объект Organization
             currentOrg.name = line.substr(string("Организация:").length() + 1);
-            if (currentOrg.name.empty()) currentOrg.name = Constants::DEFAULT_EMPTY_VALUE; // Обработка пустого значения
+            if (currentOrg.name.empty()) currentOrg.name = Constants::DEFAULT_EMPTY_VALUE;
             inAdditionalContacts = false;
         }
         else if (line.rfind("Адрес:", 0) == 0) {
-            currentOrg.address = line.substr(string("Адрес:").length() + 1);
-            if (currentOrg.address.empty()) currentOrg.address = Constants::DEFAULT_EMPTY_VALUE; // Обработка пустого значения
+            string address = line.substr(string("Адрес:").length() + 1);
+            if (address.empty()) address = Constants::DEFAULT_EMPTY_VALUE;
+            currentOrg.addresses.push_back(address);
             inAdditionalContacts = false;
         }
         else if (line.rfind("Контактное лицо:", 0) == 0) {
-            currentOrg.contactPerson = line.substr(string("Контактное лицо:").length() + 1);
-            if (currentOrg.contactPerson.empty()) currentOrg.contactPerson = Constants::DEFAULT_EMPTY_VALUE; // Обработка пустого значения
+            string contact = line.substr(string("Контактное лицо:").length() + 1);
+            if (contact.empty()) contact = Constants::DEFAULT_EMPTY_VALUE;
+            if (!isValidFio(contact) && contact != Constants::DEFAULT_EMPTY_VALUE) {
+                cerr << "Некорректный формат ФИО: " << contact << endl;
+            }
+            currentOrg.contacts.push_back(contact);
             inAdditionalContacts = false;
         }
         else if (line == "Другие найденные данные компании:") {
@@ -127,37 +123,42 @@ vector<Organization> readOrganizationsFromFile(const string& filename) {
         }
         else if (inAdditionalContacts && line.rfind("Адрес:", 0) == 0) {
             string address = line.substr(string("Адрес:").length() + 1);
-            if (address.empty()) address = Constants::DEFAULT_EMPTY_VALUE; // Обработка пустого значения
+            if (address.empty()) address = Constants::DEFAULT_EMPTY_VALUE;
+            currentOrg.addresses.push_back(address);
+
             getline(file, line); // Считываем строку с контактным лицом
             if (line.rfind("Контактное лицо:", 0) == 0) {
-                string contactPerson = line.substr(string("Контактное лицо:").length() + 1);
-                if (contactPerson.empty()) contactPerson = Constants::DEFAULT_EMPTY_VALUE; // Обработка пустого значения
-                currentOrg.additionalContacts.push_back({ address, contactPerson });
+                string contact = line.substr(string("Контактное лицо:").length() + 1);
+                if (contact.empty()) contact = Constants::DEFAULT_EMPTY_VALUE;
+                if (!isValidFio(contact) && contact != Constants::DEFAULT_EMPTY_VALUE) {
+                    cerr << "Некорректный формат ФИО: " << contact << endl;
+                }
+                currentOrg.contacts.push_back(contact);
             }
         }
         else if (line.rfind("\tТип корреспонденции:", 0) == 0) {
-            // Читаем данные о корреспонденции
             Correspondence corr;
             corr.type = line.substr(string("\tТип корреспонденции:").length() + 1);
-            if (corr.type.empty()) corr.type = Constants::DEFAULT_EMPTY_VALUE; // Обработка пустого значения
+            if (corr.type.empty()) corr.type = Constants::DEFAULT_EMPTY_VALUE;
 
-            getline(file, line); // Считываем строку с датой
+            getline(file, line);
             if (line.rfind("\tДата:", 0) == 0) {
                 corr.date = line.substr(string("\tДата:").length() + 1);
-                if (corr.date.empty()) corr.date = Constants::DEFAULT_EMPTY_VALUE; // Обработка пустого значения
+                if (corr.date.empty()) corr.date = Constants::DEFAULT_EMPTY_VALUE;
+                if (!isValidDate(corr.date) && corr.date != Constants::DEFAULT_EMPTY_VALUE) {
+                    cerr << "Некорректный формат даты: " << corr.date << endl;
+                }
             }
             currentOrg.correspondences.push_back(corr);
             inAdditionalContacts = false;
         }
         else if (line == "--------------------") {
-            // Конец блока организации
             organizations.push_back(currentOrg);
             currentOrg = {};
             inAdditionalContacts = false;
         }
     }
 
-    // Добавляем последнюю организацию, если файл не заканчивается разделителем
     if (!currentOrg.name.empty()) {
         organizations.push_back(currentOrg);
     }
@@ -167,71 +168,180 @@ vector<Organization> readOrganizationsFromFile(const string& filename) {
 }
 
 /** @brief Выводит данные об организациях в файл. */
-void writeOrganizationsToFile(const string& filename, const vector<Organization>& organizations, const string& sortField, bool ascending, const vector<int>& missingValuesIndices) {
+void writeOrganizationsToFile(const string& filename, const vector<Organization>& organizations, const string& sortField, bool ascending, const vector<TempCorrespondence>& sortedCorrespondences) {
     ofstream file(filename);
     if (!file.is_open()) {
         cerr << "Не удалось открыть файл для записи: " << filename << endl;
         return;
     }
 
-    // Записываем информацию о сортировке в файл
     file << "Сортировка по полю: " << sortField << endl;
     file << "Направление сортировки: " << (ascending ? "По возрастанию" : "По убыванию") << endl;
     file << "--------------------\n";
 
-    for (size_t i = 0; i < organizations.size(); ++i) {
-        const auto& org = organizations[i];
+    string previousGroupValue = ""; // Значение поля сортировки для предыдущей группы
 
-        file << "Организация: " << org.name << endl;
-        file << "Адрес: " << org.address << endl;
-        file << "Контактное лицо: " << org.contactPerson << endl;
+    if (sortField == "Дата" || sortField == "Тип корреспонденции") {
+        for (const auto& tempCorr : sortedCorrespondences) {
+            string currentGroupValue;
 
-        if (!org.additionalContacts.empty()) {
-            file << "Другие найденные данные компании:\n";
-            for (const auto& contact : org.additionalContacts) {
-                file << "Адрес: " << contact.first << endl;
-                file << "Контактное лицо: " << contact.second << endl;
+            if (sortField == "Дата") {
+                currentGroupValue = tempCorr.value;
             }
-        }
-
-        if (org.correspondences.empty()) {
-            file << "\tКорреспонденция отсутствует\n";
-        }
-        else {
-            for (const auto& corr : org.correspondences) {
-                file << "\tТип корреспонденции: " << corr.type << endl;
-                file << "\tДата: " << corr.date << endl;
+            else {
+                currentGroupValue = tempCorr.organization->correspondences[tempCorr.correspondenceIndex].type; //Получаем тип
             }
-        }
 
-        // Выводим сообщение об отсутствии значения, если организация была перемещена в конец списка из-за этого
-        bool missingValue = false;
-        for (int index : missingValuesIndices) {
-            if (index == i) {
-                missingValue = true;
-                break;
+            // Выводим заголовок группы, если значение изменилось
+            if (currentGroupValue != previousGroupValue) {
+                if (currentGroupValue == Constants::DEFAULT_EMPTY_VALUE) {
+                    file << "-" << sortField << ": " << currentGroupValue << "-\n";
+                }
+                else if (sortField == "Дата" && !isValidDate(currentGroupValue)) {
+                    file << Constants::INVALID_DATE_GROUP << "\n";
+                }
+                else {
+                    file << "-" << sortField << ": " << currentGroupValue << "-\n";
+                }
+                previousGroupValue = currentGroupValue;
             }
-        }
-        if (missingValue) {
-            file << "\t" << sortField << " отсутствует\n";
-        }
 
-        file << "--------------------\n";
+            // Выводим данные организации
+            file << "Организация: " << tempCorr.organization->name << endl;
+
+            file << "Адрес: ";
+            if (!tempCorr.organization->addresses.empty()) {
+                file << tempCorr.organization->addresses[0];
+                for (size_t i = 1; i < tempCorr.organization->addresses.size(); ++i) {
+                    file << "; " << tempCorr.organization->addresses[i];
+                }
+                file << endl;
+            }
+            else {
+                file << Constants::DEFAULT_EMPTY_VALUE << endl;
+            }
+
+            file << "Контактное лицо: ";
+            if (!tempCorr.organization->contacts.empty()) {
+                file << tempCorr.organization->contacts[0];
+                for (size_t i = 1; i < tempCorr.organization->contacts.size(); ++i) {
+                    file << "; " << tempCorr.organization->contacts[i];
+                }
+                file << endl;
+            }
+            else {
+                file << Constants::DEFAULT_EMPTY_VALUE << endl;
+            }
+            //Eсли тип
+            if (sortField == "Тип корреспонденции") {
+                file << "\tТип корреспонденции: " << tempCorr.organization->correspondences[tempCorr.correspondenceIndex].type << endl;
+                //Выводим все даты через запятую
+                file << "\tДата: " << tempCorr.value << endl; // Выводим value, которое теперь содержит объединенные даты
+
+            }
+            else {
+                file << "\tТип корреспонденции: " << tempCorr.organization->correspondences[tempCorr.correspondenceIndex].type << endl;
+                file << "\tДата: " << tempCorr.organization->correspondences[tempCorr.correspondenceIndex].date << endl;
+            }
+            file << "--------------------\n";
+        }
     }
+    else {
+        for (const auto& org : organizations) {
+            //Определяем текущее значение
+            string currentGroupValue = "";
+            if (sortField == "Организация") {
+                currentGroupValue = org.name;
+            }
+            else if (sortField == "Адрес") {
+                currentGroupValue = org.addresses.empty() ? Constants::DEFAULT_EMPTY_VALUE : org.addresses[0];
+                for (size_t i = 1; i < org.addresses.size(); ++i) {
+                    currentGroupValue += "; " + org.addresses[i];
+                }
+            }
+            else if (sortField == "Контактное лицо") {
+                currentGroupValue = org.contacts.empty() ? Constants::DEFAULT_EMPTY_VALUE : org.contacts[0];
+                bool hasInvalid = false;
+                for (const string& contact : org.contacts) {
+                    if (!isValidFio(contact) && contact != Constants::DEFAULT_EMPTY_VALUE) {
+                        hasInvalid = true;
+                        break;
+                    }
+                }
+                if (hasInvalid)
+                {
+                    currentGroupValue = Constants::INVALID_FIO_GROUP;
+                }
+                else {
+                    for (size_t i = 1; i < org.contacts.size(); ++i) {
+                        currentGroupValue += "; " + org.contacts[i];
+                    }
+                }
+            }
 
+            // Выводим заголовок группы, если значение изменилось
+
+            if (currentGroupValue != previousGroupValue) {
+                if (currentGroupValue == Constants::DEFAULT_EMPTY_VALUE) {
+                    file << "-" << sortField << ": " << currentGroupValue << "-\n";
+                }
+                else if (sortField == "Контактное лицо" && currentGroupValue == Constants::INVALID_FIO_GROUP) {
+                    file << Constants::INVALID_FIO_GROUP << "\n";
+                }
+                else {
+                    file << "-" << sortField << ": " << currentGroupValue << "-\n";
+                }
+                previousGroupValue = currentGroupValue;
+            }
+            // Выводим данные организации
+            file << "Организация: " << org.name << endl;
+
+            file << "Адрес: ";
+            if (!org.addresses.empty()) {
+                file << org.addresses[0];
+                for (size_t i = 1; i < org.addresses.size(); ++i) {
+                    file << "; " << org.addresses[i];
+                }
+                file << endl;
+            }
+            else {
+                file << Constants::DEFAULT_EMPTY_VALUE << endl;
+            }
+
+            file << "Контактное лицо: ";
+            if (!org.contacts.empty()) {
+                file << org.contacts[0];
+                for (size_t i = 1; i < org.contacts.size(); ++i) {
+                    file << "; " << org.contacts[i];
+                }
+                file << endl;
+            }
+            else {
+                file << Constants::DEFAULT_EMPTY_VALUE << endl;
+            }
+
+            if (org.correspondences.empty())
+            {
+                file << "\tКорреспонденция отсутствует\n";
+            }
+            else {
+                for (const auto& corr : org.correspondences) {
+                    file << "\tТип корреспонденции: " << corr.type << endl;
+                    file << "\tДата: " << corr.date << endl;
+                }
+            }
+            file << "--------------------\n";
+        }
+    }
     file.close();
     cout << "Данные успешно записаны в файл: " << filename << endl;
 }
 
 /** @brief Запускает процесс сортировки данных. */
 void runSorting(string& folderPath, string& inputFilename) {
-    // Получаем имя входного файла от пользователя
     inputFilename = getInputFilenameFromUser(folderPath);
-
-    // Считываем данные об организациях из файла
     vector<Organization> organizations = readOrganizationsFromFile(inputFilename);
 
-    // Выводим сообщение, если не удалось прочитать организации
     if (organizations.empty()) {
         cout << "Нет данных для сортировки." << endl;
         cout << "Нажмите любую клавишу для возврата в меню...";
@@ -239,11 +349,12 @@ void runSorting(string& folderPath, string& inputFilename) {
         return;
     }
 
-    // Выбор поля для сортировки
     cout << "\nВыберите поле для сортировки:\n";
     cout << "1. Организация\n";
     cout << "2. Адрес\n";
     cout << "3. Контактное лицо\n";
+    cout << "4. Тип корреспонденции\n";
+    cout << "5. Дата\n";
     cout << "Esc - Вернуться в главное меню\n";
     cout << "\nВаш выбор: ";
 
@@ -261,7 +372,13 @@ void runSorting(string& folderPath, string& inputFilename) {
     case '3':
         sortField = "Контактное лицо";
         break;
-    case 27:
+    case '4':
+        sortField = "Тип корреспонденции";
+        break;
+    case '5':
+        sortField = "Дата";
+        break;
+    case 27: // Код клавиши Esc
         return;
     default:
         cerr << "Неверный выбор.\n";
@@ -270,7 +387,6 @@ void runSorting(string& folderPath, string& inputFilename) {
         return;
     }
 
-    // Выбор направления сортировки
     cout << "\nВыберите направление сортировки:\n";
     cout << "1. По возрастанию (up)\n";
     cout << "2. По убыванию (down)\n";
@@ -297,17 +413,11 @@ void runSorting(string& folderPath, string& inputFilename) {
         return;
     }
 
-    // Вектор для хранения индексов организаций, у которых отсутствуют значения в поле сортировки
-    vector<int> missingValuesIndices;
+    vector<TempCorrespondence> sortedCorrespondences;
+    sortOrganizations(organizations, sortField, ascending, sortedCorrespondences);
 
-    // Выполняем сортировку
-    sortOrganizations(organizations, sortField, ascending, missingValuesIndices);
-
-    // Формируем имя файла для сохранения результатов
     string outputFilename = folderPath + "sorted_by_" + sortField + "_" + (ascending ? "up" : "down") + ".txt";
-
-    // Записываем отсортированные данные в файл
-    writeOrganizationsToFile(outputFilename, organizations, sortField, ascending, missingValuesIndices);
+    writeOrganizationsToFile(outputFilename, organizations, sortField, ascending, sortedCorrespondences);
 
     cout << "Нажмите любую клавишу для возврата в меню...";
     _getch();
@@ -355,7 +465,7 @@ void menu() {
                     cerr << "Ошибка: не удалось проверить путь к папке. Код ошибки: "
                     << errno << "\n";
                 _getch();
-                continue; // Возврат в начало цикла, если путь некорректен
+                continue;
             }
 
             if (currentFolderPath.back() != '\\')
@@ -371,121 +481,199 @@ void menu() {
             readInstructionsFromFile(Constants::INSTRUCTIONS_FILE);
             break;
         case '4':
-            return; // Выход из программы
+            return;
         default:
             cerr << "Неверный выбор.\n";
         }
     }
 }
 
-/** @brief Выполняет сортировку вектора организаций методом выбора.
-   @param organizations Вектор организаций для сортировки.
-   @param sortField Поле, по которому выполняется сортировка.
-   @param ascending Направление сортировки (true - по возрастанию, false - по убыванию).
-   @param missingValuesIndices Вектор индексов организаций, у которых отсутствуют значения в поле сортировки.
-*/
-void sortOrganizations(vector<Organization>& organizations, const string& sortField, bool ascending, vector<int>& missingValuesIndices) {
+/** @brief Выполняет сортировку вектора организаций методом выбора. */
+void sortOrganizations(vector<Organization>& organizations, const string& sortField, bool ascending, vector<TempCorrespondence>& sortedCorrespondences) {
     int n = organizations.size();
 
-    // Сначала собираем индексы организаций с отсутствующими значениями
-    for (int i = 0; i < n; ++i) {
-        bool hasValue = true;
-        if (sortField == "Организация") {
-            if (organizations[i].name == Constants::DEFAULT_EMPTY_VALUE) hasValue = false;
-        }
-        else if (sortField == "Адрес") {
-            if (organizations[i].address == Constants::DEFAULT_EMPTY_VALUE) hasValue = false;
-        }
-        else if (sortField == "Контактное лицо") {
-            if (organizations[i].contactPerson == Constants::DEFAULT_EMPTY_VALUE) hasValue = false;
+    if (sortField == "Дата" || sortField == "Тип корреспонденции") {
+        // 1. Создаем временный вектор
+        vector<TempCorrespondence> tempCorrespondences;
+        for (int i = 0; i < n; ++i) {
+            for (size_t j = 0; j < organizations[i].correspondences.size(); ++j) {
+                TempCorrespondence tempCorr;
+                tempCorr.organization = &organizations[i];
+                tempCorr.correspondenceIndex = j;
+                tempCorr.value = (sortField == "Дата") ? organizations[i].correspondences[j].date : organizations[i].correspondences[j].type;
+                tempCorrespondences.push_back(tempCorr);
+            }
         }
 
-        if (!hasValue) {
-            missingValuesIndices.push_back(i);
+        // 2. Сортируем временный вектор методом выбора
+        for (size_t i = 0; i < tempCorrespondences.size() - 1; ++i) {
+            size_t minMaxIndex = i;
+            for (size_t j = i + 1; j < tempCorrespondences.size(); ++j) {
+                bool swap = false;
+                if (sortField == "Дата") {
+                    if (compareDates(tempCorrespondences[j].value, tempCorrespondences[minMaxIndex].value, ascending)) {
+                        minMaxIndex = j;
+                    }
+                }
+                else { // sortField == "Тип корреспонденции"
+                    if (compareValues(tempCorrespondences[j].value, tempCorrespondences[minMaxIndex].value, ascending) < 0) {
+                        minMaxIndex = j;
+                    }
+                }
+            }
+            if (minMaxIndex != i) {
+                swap(tempCorrespondences[i], tempCorrespondences[minMaxIndex]);
+            }
         }
+        //Если тип
+        if (sortField == "Тип корреспонденции") {
+            vector<TempCorrespondence> mergedCorrespondences;
+            for (const auto& tempCorr : tempCorrespondences) {
+                bool merged = false;
+                for (auto& mergedCorr : mergedCorrespondences) {
+                    // Если орг совпадает и тип совпадает
+                    if (tempCorr.organization == mergedCorr.organization &&
+                        tempCorr.organization->correspondences[tempCorr.correspondenceIndex].type ==
+                        mergedCorr.organization->correspondences[mergedCorr.correspondenceIndex].type) {
+                        // Объединяем даты
+                        mergedCorr.value += ", " + tempCorr.organization->correspondences[tempCorr.correspondenceIndex].date;
+                        merged = true;
+                        break;
+                    }
+                }
+                if (!merged) {
+                    // Создаем новую запись в mergedCorrespondences
+                    TempCorrespondence newCorr;
+                    newCorr.organization = tempCorr.organization;
+                    newCorr.correspondenceIndex = tempCorr.correspondenceIndex;
+                    newCorr.value = tempCorr.organization->correspondences[tempCorr.correspondenceIndex].date;  // value - это строка с датами!
+                    mergedCorrespondences.push_back(newCorr);
+                }
+            }
+            sortedCorrespondences = mergedCorrespondences;
+        }
+        else {
+            sortedCorrespondences = tempCorrespondences;
+        }
+
+
     }
+    else {
+        for (int i = 0; i < n - 1; ++i) {
+            int minMaxIndex = i;
+            for (int j = i + 1; j < n; ++j) {
+                bool swap = false;
 
-    // Сортируем только организации с имеющимися значениями
-    for (int i = 0; i < n - 1; ++i) {
-        // Пропускаем организации, которые будут перемещены в конец списка
-        bool skipI = false;
-        for (int index : missingValuesIndices) {
-            if (index == i) {
-                skipI = true;
-                break;
-            }
-        }
-        if (skipI) continue;
+                //Определяем значение для первой организации
+                string value1;
+                if (sortField == "Организация") {
+                    value1 = organizations[minMaxIndex].name;
+                }
+                else if (sortField == "Адрес") {
+                    value1 = organizations[minMaxIndex].addresses.empty() ? Constants::DEFAULT_EMPTY_VALUE : organizations[minMaxIndex].addresses[0]; // Берем первый адрес
+                }
+                else if (sortField == "Контактное лицо") {
+                    //Объединяем
+                    if (organizations[minMaxIndex].contacts.empty()) {
+                        value1 = Constants::DEFAULT_EMPTY_VALUE;
+                    }
+                    else {
+                        value1 = organizations[minMaxIndex].contacts[0];
+                        for (size_t k = 1; k < organizations[minMaxIndex].contacts.size(); ++k) {
+                            value1 += "; " + organizations[minMaxIndex].contacts[k];
+                        }
+                    }
+                }
 
-        int minIndex = i;
-        for (int j = i + 1; j < n; ++j) {
-            // Пропускаем организации, которые будут перемещены в конец списка
-            bool skipJ = false;
-            for (int index : missingValuesIndices) {
-                if (index == j) {
-                    skipJ = true;
-                    break;
+                //Определяем значение для второй организации
+                string value2;
+                if (sortField == "Организация") {
+                    value2 = organizations[j].name;
+                }
+                else if (sortField == "Адрес") {
+                    value2 = organizations[j].addresses.empty() ? Constants::DEFAULT_EMPTY_VALUE : organizations[j].addresses[0]; // Берем первый адрес
+                }
+                else if (sortField == "Контактное лицо") {
+                    //Объединяем
+                    if (organizations[j].contacts.empty()) {
+                        value2 = Constants::DEFAULT_EMPTY_VALUE;
+                    }
+                    else {
+                        value2 = organizations[j].contacts[0];
+                        for (size_t k = 1; k < organizations[j].contacts.size(); ++k) {
+                            value2 += "; " + organizations[j].contacts[k];
+                        }
+                    }
+                }
+                if (compareValues(value1, value2, ascending) < 0)
+                {
+                    minMaxIndex = j;
                 }
             }
-            if (skipJ) continue;
-
-            bool swap = false;
-            if (sortField == "Организация") {
-                if (ascending) {
-                    swap = organizations[j].name < organizations[minIndex].name;
-                }
-                else {
-                    swap = organizations[j].name > organizations[minIndex].name;
-                }
-            }
-            else if (sortField == "Адрес") {
-                if (ascending) {
-                    swap = organizations[j].address < organizations[minIndex].address;
-                }
-                else {
-                    swap = organizations[j].address > organizations[minIndex].address;
-                }
-            }
-            else if (sortField == "Контактное лицо") {
-                if (ascending) {
-                    swap = organizations[j].contactPerson < organizations[minIndex].contactPerson;
-                }
-                else {
-                    swap = organizations[j].contactPerson > organizations[minIndex].contactPerson;
-                }
-            }
-
-            if (swap) {
-                minIndex = j;
-            }
-        }
-
-        if (minIndex != i) {
-            swap(organizations[i], organizations[minIndex]);
-        }
-    }
-
-    // Перемещаем организации с отсутствующими значениями в конец списка
-    int missingCount = missingValuesIndices.size();
-    for (int i = 0; i < missingCount; ++i) {
-        int indexToMove = missingValuesIndices[i] - i; // Корректируем индекс, так как элементы сдвигаются
-        if (indexToMove >= 0 && indexToMove < organizations.size()) {
-            Organization temp = organizations[indexToMove];
-            organizations.erase(organizations.begin() + indexToMove);
-            organizations.push_back(temp);
-            // Обновляем индексы в missingValuesIndices, чтобы они указывали на правильные позиции
-            for (int j = i + 1; j < missingCount; ++j) {
-                if (missingValuesIndices[j] > indexToMove) {
-                    missingValuesIndices[j]--;
-                }
+            if (minMaxIndex != i) {
+                swap(organizations[i], organizations[minMaxIndex]);
             }
         }
     }
 }
 
+/** @brief Сравнивает два значения value1 и value2 в зависимости от направления ascending. */
+int compareValues(const string& value1, const string& value2, bool ascending) {
+    // Обработка случаев, когда одно из значений является DEFAULT_EMPTY_VALUE
+    if (value1 == Constants::DEFAULT_EMPTY_VALUE && value2 == Constants::DEFAULT_EMPTY_VALUE) {
+        return 0; // Оба значения пусты, считаем их равными
+    }
+    else if (value1 == Constants::DEFAULT_EMPTY_VALUE) {
+        return ascending ? 1 : -1; // value1 пустое, помещаем его в конец при любом направлении
+    }
+    else if (value2 == Constants::DEFAULT_EMPTY_VALUE) {
+        return ascending ? -1 : 1; // value2 пустое, помещаем его в конец при любом направлении
+    }
+
+    //Обычное сравнение
+    if (ascending) {
+        return value1.compare(value2);
+    }
+    else {
+        return value2.compare(value1);
+    }
+}
+
 /** @brief Функция сравнения дат для сортировки. */
 bool compareDates(const string& date1, const string& date2, bool ascending) {
-    // TODO: Реализовать функцию сравнения дат с учетом неверных форматов.
-    // Неверные даты считать наименьшими/наибольшими в зависимости от направления сортировки.
-    return false; // Заглушка
+
+    // Обработка случаев, когда одно из значений является DEFAULT_EMPTY_VALUE
+    if (date1 == Constants::DEFAULT_EMPTY_VALUE && date2 == Constants::DEFAULT_EMPTY_VALUE) {
+        return false; // Оба значения пусты, считаем их равными
+    }
+    else if (date1 == Constants::DEFAULT_EMPTY_VALUE) {
+        return ascending ? true : false; // date1 пустое, помещаем его в конец при любом направлении
+    }
+    else if (date2 == Constants::DEFAULT_EMPTY_VALUE) {
+        return ascending ? false : true; // date2 пустое, помещаем его в конец при любом направлении
+    }
+
+    if (!isValidDate(date1) && !isValidDate(date2)) {
+        return false; // Обе даты некорректны
+    }
+    else if (!isValidDate(date1)) {
+        return ascending; // Первая дата некорректна
+    }
+    else if (!isValidDate(date2)) {
+        return !ascending; // Вторая дата некорректна
+    }
+
+    int day1, month1, year1, day2, month2, year2;
+    sscanf_s(date1.c_str(), "%2d.%2d.%4d", &day1, &month1, &year1);
+    sscanf_s(date2.c_str(), "%2d.%2d.%4d", &day2, &month2, &year2);
+
+    if (year1 != year2) {
+        return (year1 < year2) ^ !ascending;
+    }
+    else if (month1 != month2) {
+        return (month1 < month2) ^ !ascending;
+    }
+    else {
+        return (day1 < day2) ^ !ascending;
+    }
 }
